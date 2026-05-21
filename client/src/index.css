@@ -1,0 +1,316 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: #0a0e1a; /* Deep cyber dark background */
+  color: #e5e7eb;
+  font-family: 'Inter', sans-serif;
+  overflow: hidden; /* Prevent page scrolling, map takes full height */
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* =========================================================================
+   LAYOUT & CONTAINERS
+   ========================================================================= */
+
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  position: relative;
+}
+
+.map-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 0; /* Keep map at the absolute bottom */
+}
+
+/* Glassmorphism Panels for UI floating over the map */
+.glass-panel {
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  z-index: 10;
+}
+
+/* Header Navigation Bar */
+.header-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 2rem;
+  z-index: 50; /* Above the map */
+  position: relative;
+  border-bottom: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+/* Sidebars for portals */
+.sidebar {
+  position: absolute;
+  top: 6rem; /* More space below header */
+  bottom: 2rem;
+  width: 380px;
+  max-width: 90vw;
+  padding: 1.5rem;
+  border-radius: 16px;
+  overflow-y: auto;
+  z-index: 100; /* Higher priority than map markers */
+  pointer-events: auto;
+}
+
+.sidebar-left {
+  left: 2rem !important;
+  right: auto !important;
+}
+
+.sidebar-right {
+  right: 2rem !important;
+  left: auto !important;
+}
+
+/* =========================================================================
+   COMPONENTS
+   ========================================================================= */
+
+/* Glowing Title */
+.title-glow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 700;
+  color: #f8fafc;
+  text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+  letter-spacing: 1px;
+}
+
+/* Form Inputs */
+.input-base {
+  width: 100%;
+  background: #111827 !important; /* Solid dark for visibility */
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #f8fafc !important;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-family: 'Inter', sans-serif;
+  margin-bottom: 1rem;
+  transition: all 0.2s ease;
+}
+
+.input-base option {
+  background: #111827;
+  color: #f8fafc;
+}
+
+.input-base option:hover,
+.input-base option:focus,
+.input-base option:checked {
+  background: #3b82f6 !important;
+  color: white !important;
+}
+
+.deployed-unit-badge {
+  font-size: 0.7rem;
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  transition: all 0.2s ease;
+  cursor: default;
+}
+
+.deployed-unit-badge:hover {
+  background: rgba(59, 130, 246, 0.3);
+  border-color: rgba(59, 130, 246, 0.6);
+  transform: translateY(-1px);
+}
+
+.input-base:focus {
+  outline: none;
+  border-color: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.input-base::placeholder {
+  color: #64748b;
+}
+
+/* Buttons */
+.btn-primary {
+  background: #3b82f6;
+  color: white;
+  border: none;
+  padding: 1rem 2rem;
+  border-radius: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  width: 100%;
+  box-shadow: 0 4px 15px rgba(255, 255, 255, 0.05); /* Soft dim light instead of neon */
+}
+
+.btn-primary:hover {
+  background: #2563eb;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(255, 255, 255, 0.1);
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.05);
+  color: #f8fafc;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0.8rem 1.5rem;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 2px 10px rgba(255, 255, 255, 0.02);
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* =========================================================================
+   UTILITIES & EFFECTS
+   ========================================================================= */
+
+/* Pulsing Live Dot */
+.live-dot {
+  width: 10px;
+  height: 10px;
+  background-color: #ef4444;
+  border-radius: 50%;
+  box-shadow: 0 0 10px #ef4444;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+/* Animations */
+.animated-entry {
+  animation: slideUpFade 0.4s ease-out forwards;
+}
+
+@keyframes slideUpFade {
+  from { opacity: 0; transform: translateY(15px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Urgency Badges */
+.badge {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: white;
+}
+
+.badge-CRITICAL { background: #ef4444; box-shadow: 0 0 10px rgba(255, 255, 255, 0.1); }
+.badge-HIGH { background: #f97316; }
+.badge-MODERATE { background: #f59e0b; }
+.badge-LOW { background: #3b82f6; }
+
+/* Custom Leaflet overrides */
+.leaflet-container {
+  background: #0a0e1a !important; /* Hide white background on map load */
+}
+
+.tactical-popup .leaflet-popup-content-wrapper {
+  background: rgba(15, 23, 42, 0.9);
+  color: #e5e7eb;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  backdrop-filter: blur(5px);
+  border-radius: 8px;
+}
+
+.tactical-popup .leaflet-popup-tip {
+  background: rgba(15, 23, 42, 0.9);
+}
+
+.active-mission-panel {
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  padding: 1.5rem;
+  border-radius: 12px;
+  margin-bottom: 1.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+/* Tactical Incident Cards */
+.incident-card {
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(12px);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 0.8rem;
+}
+
+.incident-card:hover {
+  background: rgba(15, 23, 42, 0.8);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.card-CRITICAL { border-left: 4px solid #ef4444; }
+.card-HIGH { border-left: 4px solid #f97316; }
+.card-MODERATE { border-left: 4px solid #f59e0b; }
+
+/* Staged Deployment Blink — alerts commander that a unit is ready to deploy */
+@keyframes softPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.0);  border-color: rgba(255, 255, 255, 0.05); }
+  40%  { box-shadow: 0 0 18px 2px rgba(16, 185, 129, 0.35); border-color: rgba(16, 185, 129, 0.45); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.0);  border-color: rgba(255, 255, 255, 0.05); }
+}
+
+.card-active {
+  animation: softPulse 1.8s infinite ease-in-out !important;
+  background: rgba(16, 185, 129, 0.04) !important;
+  z-index: 10;
+}
+
+/* Premium Custom Dropdown Item Hover Effect */
+.dropdown-item-hover:hover {
+  background: rgba(59, 130, 246, 0.15) !important;
+  color: #3b82f6 !important;
+}

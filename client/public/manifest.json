@@ -1,0 +1,9 @@
+{
+  "short_name": "SentinelGrid",
+  "name": "SentinelGrid Disaster Relief Platform",
+  "icons": [],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0B0F1A",
+  "background_color": "#0B0F1A"
+}

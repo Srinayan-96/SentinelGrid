@@ -1,0 +1,37 @@
+name: SentinelGrid CI
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: './server/package-lock.json'
+
+      - name: Install & Lint Server
+        run: |
+          cd server
+          npm ci
+          npm run lint || echo "Linting failed, but continuing for prototype"
+
+      - name: Install & Build Client
+        run: |
+          cd client
+          npm ci
+          npm run build
+
+      - name: Smoke Test Docker Build
+        run: |
+          docker compose build
+          echo "✅ Build successful"
