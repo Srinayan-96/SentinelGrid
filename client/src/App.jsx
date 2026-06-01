@@ -104,7 +104,7 @@ function App() {
             {/* Render the Network icon from lucide-react with specific color and size */}
             <Network color="#10b981" size={28} />
             {/* Display the main application title text */}
-            <span style={{ fontSize: '1.25rem' }}>RescueGrid</span>
+            <span style={{ fontSize: '1.25rem' }}>SentinelGrid</span>
             
             {/* Container for the 'LIVE' indicator badge */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '1rem' }}>
