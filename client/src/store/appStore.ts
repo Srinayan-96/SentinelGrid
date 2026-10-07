@@ -50,13 +50,15 @@ export const useAppStore = create<AppState>()(
 
       setAuth: (user, token) => set({ user, token }),
       logout: () => set({ user: null, token: null, activeIncidentId: null }),
-      setIncidents: (incidents) => set({ incidents }),
-      addIncident: (incident) => set((state) => ({ 
-        incidents: [incident, ...state.incidents.filter(i => i.id !== incident.id)] 
-      })),
-      updateIncident: (incident) => set((state) => ({
-        incidents: state.incidents.map(i => i.id === incident.id ? incident : i)
-      })),
+      setIncidents: (incidents) => set({ incidents: Array.isArray(incidents) ? incidents : [] }),
+      addIncident: (incident) => set((state) => {
+        const current = Array.isArray(state.incidents) ? state.incidents : [];
+        return { incidents: [incident, ...current.filter(i => i.id !== incident.id)] };
+      }),
+      updateIncident: (incident) => set((state) => {
+        const current = Array.isArray(state.incidents) ? state.incidents : [];
+        return { incidents: current.map(i => i.id === incident.id ? incident : i) };
+      }),
       setActiveIncident: (id) => set({ activeIncidentId: id }),
     }),
     { name: 'sentinel-storage' }

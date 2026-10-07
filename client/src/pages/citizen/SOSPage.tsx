@@ -22,7 +22,8 @@ const SOSPage: React.FC = () => {
     lng: 72.8777
   });
 
-  const activeIncident = incidents.find(i => i.id === activeIncidentId);
+  const safeIncidents = Array.isArray(incidents) ? incidents : [];
+  const activeIncident = safeIncidents.find(i => i.id === activeIncidentId);
 
   const emergencyTypes = [
     { id: 'FLOOD', icon: '🌊', label: 'Flood' },

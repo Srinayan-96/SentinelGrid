@@ -1,58 +1,67 @@
+const asyncHandler = require('express-async-handler');
 const Message = require('../models/Message');
 const { getIo } = require('../socket/gateway');
-const axios = require('axios');
 
-exports.sendMessage = async (req, res) => {
-  try {
-    const { incidentId, content } = req.body;
-    const senderId = req.user.id;
-    const role = req.user.role;
-
-    // Save User message
-    const msg = await Message.create({
-      incident_id: incidentId,
-      sender_id: senderId,
-      content,
-      is_ai: false,
-      role
-    });
-
-    const io = getIo();
-    if (io) {
-      io.to(incidentId).emit('CHAT_MESSAGE', msg);
-    }
-
-    // AI Mediation Logic: Proactive help on every message for demo
-    setTimeout(async () => {
-      try {
-        const aiMsg = await Message.create({
-          incident_id: incidentId,
-          sender_id: null,
-          content: `[Tactical AI Copilot]: I am monitoring this frequency. Responder is ${Math.floor(Math.random()*10)} mins out. Citizen, maintain high ground. Responder, confirm oxygen kit is ready.`,
-          is_ai: true,
-          role: 'AI'
-        });
-        if (io) io.to(incidentId).emit('CHAT_MESSAGE', aiMsg);
-      } catch (aiErr) {
-        console.error('AI Mediator failed to save message:', aiErr.message);
-      }
-    }, 1500);
-
-    res.json(msg);
-  } catch (err) {
-    res.status(500).json({ error: 'Chat failed' });
+exports.getMessages = asyncHandler(async (req, res) => {
+  const whereClause = { incident_id: req.params.incidentId };
+  if (req.query.channel) {
+    whereClause.channel = req.query.channel;
   }
-};
+  const messages = await Message.findAll({
+    where: whereClause,
+    order: [['created_at', 'ASC']],
+  });
+  
+  res.json(
+    messages.map((m) => ({
+      ...m.toJSON(),
+      content: m.text,
+      incidentId: m.incident_id,
+    }))
+  );
+});
 
-exports.getMessages = async (req, res) => {
-  try {
-    const { incidentId } = req.params;
-    const messages = await Message.findAll({
-      where: { incident_id: incidentId },
-      order: [['created_at', 'ASC']]
-    });
-    res.json(messages);
-  } catch (err) {
-    res.status(500).json({ error: 'Fetch messages failed' });
+exports.sendMessage = asyncHandler(async (req, res) => {
+  const {
+    incidentId,
+    incident_id,
+    content,
+    text,
+    sender_id,
+    sender_name,
+    sender_role,
+    channel,
+    is_ai,
+  } = req.body;
+
+  const finalIncidentId = incident_id || incidentId;
+  const finalText = text || content || '';
+
+  const finalSenderId = sender_id || req.auth?.id;
+  const finalSenderName = sender_name || req.auth?.name || (is_ai ? 'Tactical AI' : 'Operator');
+  const finalSenderRole = sender_role || req.auth?.role || (is_ai ? 'AI' : 'SYSTEM');
+
+  const message = await Message.create({
+    incident_id: finalIncidentId,
+    sender_id: finalSenderId,
+    sender_name: finalSenderName,
+    sender_role: finalSenderRole,
+    text: finalText,
+    channel: channel || 'GENERAL',
+  });
+
+  const safePayload = {
+    ...message.toJSON(),
+    content: finalText,
+    incidentId: finalIncidentId,
+    is_ai: !!is_ai,
+  };
+
+  const io = getIo();
+  if (io) {
+    io.emit('message.created', safePayload);
+    io.emit('CHAT_MESSAGE', safePayload); // Legacy support
   }
-};
+
+  res.status(201).json(safePayload);
+});

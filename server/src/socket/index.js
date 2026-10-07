@@ -1,91 +1,90 @@
-module.exports = function initSocket(io) {
+const jwt = require('jsonwebtoken');
+const { getIo } = require('./gateway');
+const User = require('../models/User');
 
-  // In-memory store for responder locations
-  const responderLocations = {};
+const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key_123';
+
+const responderLocations = {};
+
+module.exports = function initSocket(io) {
+  // Middleware for Authentication
+  io.use(async (socket, next) => {
+    try {
+      const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.split(' ')[1];
+      if (!token) return next(new Error('Authentication error'));
+      
+      const decoded = jwt.verify(token, JWT_SECRET);
+      const user = await User.findByPk(decoded.id);
+      
+      if (!user) return next(new Error('User not found'));
+      
+      socket.userId = user.id;
+      socket.role = user.role;
+      next();
+    } catch (error) {
+      next(new Error('Authentication error'));
+    }
+  });
 
   io.on('connection', (socket) => {
-    console.log('Client connected:', socket.id);
+    console.log(`Socket connected: ${socket.userId} (${socket.role})`);
+    
+    // Automatically join role and user rooms based on verified identity
+    socket.join(`role:${socket.role}`);
+    socket.join(`user:${socket.userId}`);
 
-    // Join a room per role and specific incident
-    socket.on('join', ({ userId, role, incidentId }) => {
-      socket.join(`role:${role}`);
-      if (userId) socket.join(`user:${userId}`);
-      if (incidentId) socket.join(`incident:${incidentId}`);
-      
-      socket.userId = userId;
-      socket.role = role;
-      console.log(`User ${userId} (${role}) joined`);
-    });
-
-    socket.on('join:incident', ({ incidentId }) => {
+    socket.on('incident:subscribe', ({ incidentId }) => {
+      // In a real app, authorize if user can view this incident
       socket.join(`incident:${incidentId}`);
     });
 
-    // ── INCIDENT EVENTS ──────────────────────────
-
-    socket.on('incident:new', (incident) => {
-      io.to('role:COMMAND').emit('incident:new', incident);
-      io.to('role:RESPONDER').emit('incident:new', incident);
+    socket.on('incident:unsubscribe', ({ incidentId }) => {
+      socket.leave(`incident:${incidentId}`);
     });
 
-    socket.on('incident:updated', (incident) => {
-      io.emit('incident:updated', incident);
-    });
+    // Responder Location Updates
+    socket.on('responder.location_updated', async ({ lat, lng, incidentId }) => {
+      if (socket.role !== 'RESPONDER') return;
 
-    socket.on('incident:dispatched', ({ incident, responderId }) => {
-      io.emit('incident:updated', incident);
-      // Notify specific responder
-      io.to(`user:${responderId}`).emit('mission:assigned', incident);
-    });
+      responderLocations[socket.userId] = { lat, lng, updatedAt: Date.now() };
 
-    // ── RESPONDER LOCATION ───────────────────────
-
-    socket.on('responder:location', ({ userId, lat, lng, incidentId }) => {
-      responderLocations[userId] = { lat, lng, updatedAt: Date.now() };
-
-      // Broadcast to command + anyone watching this incident
-      io.to('role:COMMAND').emit('responder:location', { userId, lat, lng });
+      // Broadcast to command and incident watchers
+      io.to('role:COMMAND').emit('responder.location_updated', { userId: socket.userId, lat, lng });
       if (incidentId) {
-        io.to(`incident:${incidentId}`).emit('responder:location', {
-          userId, lat, lng, incidentId
-        });
+        io.to(`incident:${incidentId}`).emit('responder.location_updated', { userId: socket.userId, lat, lng });
       }
+
+      // Persist to DB periodically or directly (throttle this in a real app)
+      await User.update(
+        { location: { type: 'Point', coordinates: [lng, lat] }, is_online: true, updated_at: new Date() },
+        { where: { id: socket.userId } }
+      );
     });
 
-    // ── CHAT EVENTS ──────────────────────────────
+    // Chat Events
+    socket.on('chat:join', (incidentId) => {
+      socket.join(`chat:${incidentId}`);
+    });
 
-    socket.on('chat:message', async (msg) => {
-      // msg = { incidentId, senderId, senderName, senderRole, text }
+    socket.on('chat:send', (msgData) => {
       const message = {
-        ...msg,
-        id: Date.now().toString(),
-        createdAt: new Date().toISOString()
+        ...msgData,
+        id: require('uuid').v4(),
+        timestamp: new Date().toISOString()
       };
-
-      // Save to DB
-      try {
-        const Message = require('../models/Message');
-        await Message.create({
-          incident_id: msg.incidentId,
-          sender_id:   msg.senderId,
-          sender_name: msg.senderName,
-          sender_role: msg.senderRole,
-          text:        msg.text
-        });
-      } catch (e) {
-        console.error('Message save failed:', e.message);
-      }
-
-      // Broadcast to everyone in this incident room
-      io.to(`incident:${msg.incidentId}`).emit('chat:message', message);
+      
+      // Broadcast to everyone in the incident chat room
+      io.to(`chat:${msgData.incidentId}`).emit('chat:message', message);
     });
 
-    // ── DISCONNECT ───────────────────────────────
+    socket.on('disconnect', async () => {
+      console.log(`Socket disconnected: ${socket.userId}`);
+      delete responderLocations[socket.userId];
+      
+      io.to('role:COMMAND').emit('responder.offline', { userId: socket.userId });
 
-    socket.on('disconnect', () => {
-      if (socket.userId) {
-        delete responderLocations[socket.userId];
-        io.to('role:COMMAND').emit('responder:offline', { userId: socket.userId });
+      if (socket.userId && socket.role === 'RESPONDER') {
+        await User.update({ is_online: false }, { where: { id: socket.userId } });
       }
     });
   });

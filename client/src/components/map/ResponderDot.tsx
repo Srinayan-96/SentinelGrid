@@ -1,17 +1,32 @@
-import { CircleMarker, Tooltip } from 'react-leaflet';
+import { useState } from 'react';
+import { Circle, InfoWindow } from '@react-google-maps/api';
 import type { User } from '../../types';
 
 export function ResponderDot({ responder }: { responder: User }) {
+  const [activePopup, setActivePopup] = useState(false);
   if (!responder.location) return null;
+
   return (
-    <CircleMarker
-      center={[responder.location.lat, responder.location.lng]}
-      radius={8}
-      pathOptions={{ color: '#00D4FF', fillColor: '#00D4FF', fillOpacity: 0.9, weight: 2 }}
-    >
-      <Tooltip direction="top" offset={[0, -8]} opacity={1}>
-        <span className="font-mono text-xs">{responder.force_id || responder.name}</span>
-      </Tooltip>
-    </CircleMarker>
+    <>
+      <Circle
+        center={{ lat: responder.location.lat, lng: responder.location.lng }}
+        radius={15000}
+        options={{
+          fillColor: '#00D4FF',
+          fillOpacity: 0.9,
+          strokeColor: '#00D4FF',
+          strokeWeight: 2,
+        }}
+        onClick={() => setActivePopup(true)}
+      />
+      {activePopup && (
+        <InfoWindow
+          position={{ lat: responder.location.lat, lng: responder.location.lng }}
+          onCloseClick={() => setActivePopup(false)}
+        >
+          <span className="font-mono text-xs text-slate-900">{responder.force_id || responder.name}</span>
+        </InfoWindow>
+      )}
+    </>
   );
 }

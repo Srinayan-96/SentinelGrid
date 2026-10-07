@@ -17,6 +17,8 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const { v4: uuidv4 } = require('uuid');
+const errorHandler = require('./middleware/errorHandler');
 const sequelize = require('./config/database');
 const initSocket = require('./socket');
 const { setIo } = require('./socket/gateway');
@@ -43,12 +45,21 @@ setIo(io);
 app.use(cors());
 app.use(express.json());
 
+// Request ID & Logging Middleware
+app.use((req, res, next) => {
+  req.requestId = uuidv4();
+  next();
+});
+
 // Routes
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/incidents', require('./routes/incidents'));
 app.use('/api/facilities', require('./routes/facilities'));
 app.use('/api/messages', require('./routes/messages'));
 app.use('/api/users', require('./routes/users'));
+
+// Central Error Handling
+app.use(errorHandler);
 
 // Initialize Sockets
 initSocket(io);
@@ -61,9 +72,9 @@ const startServer = async () => {
     await sequelize.query('CREATE EXTENSION IF NOT EXISTS postgis;');
     await sequelize.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";');
 
-    // Sync Database
-    await sequelize.sync({ force: process.env.NODE_ENV === 'development' });
-    console.log('✅ Database synced');
+    // Run authoritative migrations
+    const runMigrations = require('./scripts/runMigrations');
+    await runMigrations();
 
     // Seed Data
     if (process.env.NODE_ENV === 'development') {

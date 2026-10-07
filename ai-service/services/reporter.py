@@ -1,15 +1,15 @@
 import json
 import os
 
-from openai import AsyncOpenAI
+from google import genai
 
 from schemas import SitRepRequest, SitRepResponse
 
-MODEL_NAME = "gpt-4o"
+MODEL_NAME = "gemini-2.5-flash"
 
 
-def _get_client() -> AsyncOpenAI:
-    return AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+def _get_client() -> genai.Client:
+    return genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 
 async def generate_sitrep(payload: SitRepRequest) -> SitRepResponse:
@@ -20,15 +20,11 @@ async def generate_sitrep(payload: SitRepRequest) -> SitRepResponse:
         f"Input grouped incidents: {payload.model_dump_json()}"
     )
 
-    completion = await client.chat.completions.create(
+    response = client.models.generate_content(
         model=MODEL_NAME,
-        temperature=0.2,
-        messages=[
-            {"role": "system", "content": "You produce concise emergency operation situation reports."},
-            {"role": "user", "content": prompt},
-        ],
+        contents=prompt,
     )
-    report_text = (completion.choices[0].message.content or "").strip()
+    report_text = (response.text or "").strip()
     zone = "ALL_ZONES"
     if payload.grouped_incidents:
         zone = ",".join(sorted({item.zone for item in payload.grouped_incidents}))

@@ -1,37 +1,55 @@
-import { Circle, CircleMarker, Popup } from 'react-leaflet';
+import { useState } from 'react';
+import { Circle, InfoWindow } from '@react-google-maps/api';
 import type { Incident } from '../../types';
 
 const STYLE = {
-  CRITICAL: { radius: 16, color: '#FF4444', fillOpacity: 0.85, pulseRadius: 34 },
-  HIGH: { radius: 12, color: '#FF8C00', fillOpacity: 0.8, pulseRadius: 24 },
-  MODERATE: { radius: 9, color: '#FFD700', fillOpacity: 0.75, pulseRadius: 18 },
-  RESOLVED: { radius: 7, color: '#00FF88', fillOpacity: 0.5, pulseRadius: 14 },
+  CRITICAL: { radius: 16000, color: '#FF4444', fillOpacity: 0.85, pulseRadius: 34000 },
+  HIGH: { radius: 12000, color: '#FF8C00', fillOpacity: 0.8, pulseRadius: 24000 },
+  MODERATE: { radius: 9000, color: '#FFD700', fillOpacity: 0.75, pulseRadius: 18000 },
+  RESOLVED: { radius: 7000, color: '#00FF88', fillOpacity: 0.5, pulseRadius: 14000 },
 } as const;
 
 export function IncidentMarker({ incident }: { incident: Incident }) {
   const key = incident.status === 'RESOLVED' ? 'RESOLVED' : incident.urgency;
   const style = STYLE[key];
+  const [activePopup, setActivePopup] = useState(false);
+
   return (
     <>
       {incident.status !== 'RESOLVED' && (
         <Circle
-          center={[incident.location.lat, incident.location.lng]}
-          pathOptions={{ color: style.color, opacity: 0.25 }}
-          radius={style.pulseRadius * 60}
+          center={{ lat: Number(incident.location.lat), lng: Number(incident.location.lng) }}
+          radius={style.pulseRadius}
+          options={{
+            fillColor: style.color,
+            fillOpacity: 0.25,
+            strokeWeight: 0,
+          }}
         />
       )}
-      <CircleMarker
-        center={[incident.location.lat, incident.location.lng]}
+      <Circle
+        center={{ lat: Number(incident.location.lat), lng: Number(incident.location.lng) }}
         radius={style.radius}
-        pathOptions={{ color: style.color, fillColor: style.color, fillOpacity: style.fillOpacity, weight: 2 }}
-      >
-        <Popup>
-          <div className="font-mono text-xs">
-            <div>{incident.title}</div>
+        options={{
+          fillColor: style.color,
+          fillOpacity: style.fillOpacity,
+          strokeColor: style.color,
+          strokeWeight: 2,
+        }}
+        onClick={() => setActivePopup(true)}
+      />
+      
+      {activePopup && (
+        <InfoWindow
+          position={{ lat: Number(incident.location.lat), lng: Number(incident.location.lng) }}
+          onCloseClick={() => setActivePopup(false)}
+        >
+          <div className="font-mono text-xs text-slate-900">
+            <div className="font-bold">{incident.title}</div>
             <div>{incident.category} | {incident.urgency}</div>
           </div>
-        </Popup>
-      </CircleMarker>
+        </InfoWindow>
+      )}
     </>
   );
 }

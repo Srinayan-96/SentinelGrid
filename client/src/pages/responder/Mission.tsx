@@ -15,7 +15,8 @@ const Mission: React.FC = () => {
 
   useEffect(() => {
     // Find active mission assigned to me
-    const mission = incidents.find(i => i.assigned_to === user?.id || i.assigned_unit === user?.unit_name && i.status !== 'RESOLVED');
+    const safeIncidents = Array.isArray(incidents) ? incidents : [];
+    const mission = safeIncidents.find(i => i.assigned_to === user?.id || i.assigned_unit === user?.unit_name && i.status !== 'RESOLVED');
     if (mission) setActiveMission(mission);
     else setActiveMission(null);
   }, [incidents, user]);
@@ -26,8 +27,8 @@ const Mission: React.FC = () => {
 
     const interval = setInterval(() => {
       // Move slightly toward destination for demo simulation
-      const destLat = activeMission.lat;
-      const destLng = activeMission.lng;
+      const destLat = Number(activeMission.lat || 0);
+      const destLng = Number(activeMission.lng || 0);
       
       setResponderPos(prev => {
         const newLat = prev[0] + (destLat - prev[0]) * 0.05;
@@ -171,11 +172,11 @@ const Mission: React.FC = () => {
 
             <div className="flex-1 relative">
               <MapView 
-                center={[activeMission.lat, activeMission.lng]} 
+                center={[Number(activeMission.lat || 0), Number(activeMission.lng || 0)]} 
                 zoom={14} 
                 incidents={[activeMission]}
                 responderPos={responderPos}
-                destinationPos={[activeMission.lat, activeMission.lng]}
+                destinationPos={[Number(activeMission.lat || 0), Number(activeMission.lng || 0)]}
               />
               
               <div className="absolute top-8 left-8 z-[1000] bg-[#161C2C]/90 backdrop-blur border border-slate-800 p-4 rounded-xl shadow-2xl">

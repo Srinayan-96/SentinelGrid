@@ -1,151 +1,293 @@
-const jwt = require('jsonwebtoken');
+const asyncHandler = require('express-async-handler');
+const Assignment = require('../models/Assignment');
 const Incident = require('../models/Incident');
+const Facility = require('../models/Facility');
 const User = require('../models/User');
-const { getIo } = require('../socket/gateway');
-const { sequelize } = require('../config/database');
+const { triageIncident } = require('../services/triage');
 const { enrichIncidentsList } = require('../services/incidentService');
+const { fetchAndSeedNearbyFacilities } = require('../services/placesService');
+const { getIo } = require('../socket/gateway');
+const { NotFoundError, ConflictError } = require('../errors/AppError');
+const sequelize = require('../config/database');
 
-const axios = require('axios');
+function clampNum(x, fallback) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : fallback;
+}
 
-exports.createIncident = async (req, res) => {
-  try {
-    const { title, description, latitude, longitude } = req.body;
-    
-    // Call FastAPI AI Service
-    let triage = { urgency: 'MODERATE', category: 'OTHER', survivalTips: [], summary: 'Awaiting AI analysis...', resources: ['BASIC_GEAR'] };
-    try {
-      const aiResponse = await axios.post(process.env.AI_SERVICE_URL + '/api/triage', {
-        description
-      });
-      triage = aiResponse.data;
-    } catch (aiError) {
-      console.error('AI Service fetch failed, using fallback triage:', aiError.message);
+exports.createIncident = asyncHandler(async (req, res) => {
+  const { title, description, type, severity, people_affected, lat, lng, state, reporter_id } = req.body;
+  const finalType = type || (title ? 'RESCUE' : 'OTHER');
+  const finalSeverity = severity || 'MEDIUM';
+  const finalDescription = description || title || '';
+
+  const triageResult = await triageIncident({
+    type: finalType,
+    people_affected: people_affected,
+    description: finalDescription,
+    state,
+  });
+
+  const incident = await Incident.create({
+    title,
+    type: finalType,
+    severity: finalSeverity,
+    description: finalDescription,
+    people_affected: people_affected,
+    location: { type: 'Point', coordinates: [lng, lat] },
+    state,
+    reporter_id,
+    ...triageResult,
+  });
+
+  const enriched = (await enrichIncidentsList([incident]))[0];
+  
+  // Seed nearby facilities dynamically from Google API (Async)
+  fetchAndSeedNearbyFacilities(lat, lng, state).then(async (newFacilities) => {
+    if (newFacilities.length > 0) {
+      const io = getIo();
+      if (io) io.emit('facilities.updated', newFacilities);
     }
+  });
 
-    // 1. Create the Incident
-    const incident = await Incident.create({
-      title,
-      description,
-      location: { type: 'Point', coordinates: [longitude, latitude] },
-      urgency: triage.urgency,
-      category: triage.category,
-      ai_urgency: triage.urgency,
-      ai_category: triage.category,
-      ai_summary: triage.summary,
-      ai_resources_needed: triage.resources,
-      survival_tips: triage.survivalTips,
-      status: 'OPEN' // Temporarily OPEN until we find someone
-    });
+  const io = getIo();
+  if (io) io.emit('incident.created', enriched);
 
-    // 2. Spatial Query: Find nearest Responder using PostGIS
-    // ST_DistanceSphere returns distance in meters.
-    const nearestResponder = await User.findOne({
-      where: {
-        role: 'RESPONDER',
-        is_available: true,
-        is_online: true // Ideally only dispatch to online, but for demo let's grab any
-      },
-      attributes: {
-        include: [
-          [
-            sequelize.fn(
-              'ST_DistanceSphere',
-              sequelize.col('location'),
-              sequelize.fn('ST_SetSRID', sequelize.fn('ST_MakePoint', longitude, latitude), 4326)
-            ),
-            'distance_meters'
-          ]
-        ]
-      },
-      order: [
-        [
-          sequelize.fn(
-            'ST_DistanceSphere',
-            sequelize.col('location'),
-            sequelize.fn('ST_SetSRID', sequelize.fn('ST_MakePoint', longitude, latitude), 4326)
-          ),
-          'ASC'
-        ]
-      ]
-    });
+  res.status(201).json(enriched);
+});
 
-    // Removed auto-assignment logic as per manual dispatch requirement.
-    // Incident remains in OPEN status until command center manual assignment.
-    
-    const enriched = (await enrichIncidentsList([incident]))[0];
-    const payload = enriched;
-    // Broadcast
-    const io = getIo();
-    if(io) {
-      if(incident.status === 'ASSIGNED') {
-        io.emit('INCIDENT_ASSIGNED', payload); // Target everyone for demo visual
-      } else {
-        io.emit('NEW_INCIDENT', payload);
-      }
+exports.getIncidents = asyncHandler(async (req, res) => {
+  const { state, status, assignedTo, page, limit } = req.query;
+  const where = {};
+  if (state) where.state = state;
+  if (status) where.status = status;
+  if (assignedTo) where.assigned_to = assignedTo;
+
+  const offset = (page - 1) * limit;
+
+  const { rows, count } = await Incident.findAndCountAll({
+    where,
+    order: [['created_at', 'DESC']],
+    limit,
+    offset,
+  });
+
+  const enriched = await enrichIncidentsList(rows);
+  res.json(enriched);
+});
+
+exports.getIncidentById = asyncHandler(async (req, res) => {
+  const incident = await Incident.findByPk(req.params.id);
+  if (!incident) throw new NotFoundError('Incident not found');
+  const enriched = (await enrichIncidentsList([incident]))[0];
+  res.json(enriched);
+});
+exports.assignIncident = asyncHandler(async (req, res) => {
+  const { facilityId, assignedUnit, responderId, responder_id } = req.body;
+  let rId = responderId || responder_id;
+
+  if (assignedUnit && !rId) {
+    const responderUser = await User.findOne({ where: { unit_name: assignedUnit, role: 'RESPONDER' } });
+    if (responderUser) {
+      rId = responderUser.id;
     }
-
-    // Generate GUEST token for anonymous citizen so they can chat
-    let guestToken = null;
-    if (!req.user) {
-      guestToken = jwt.sign(
-        { id: '00000000-0000-0000-0000-000000000000', role: 'CITIZEN' }, 
-        process.env.JWT_SECRET || 'dev_secret', 
-        { expiresIn: '1d' }
-      );
-    }
-
-    res.status(201).json({ ...payload, token: guestToken });
-  } catch (error) {
-    console.error('Failed to create incident:', error);
-    res.status(500).json({ error: 'Creation failed' });
   }
-};
 
-exports.getIncidents = async (req, res) => {
-  try {
-    const incidents = await Incident.findAll({ 
-      order: [['created_at', 'DESC']],
-      include: [{ model: User, as: 'Responder', attributes: ['name', 'force_id', 'location'] }]
-    });
-    
-    const formatted = await enrichIncidentsList(incidents);
-    res.json(formatted);
-  } catch (error) {
-    console.error('Fetch failed:', error);
-    res.status(500).json({ error: 'Fetch failed' });
-  }
-};
+  const result = await sequelize.transaction(async (t) => {
+    const incident = await Incident.findByPk(req.params.id, { lock: t.LOCK.UPDATE, transaction: t });
+    if (!incident) throw new NotFoundError('Incident not found');
+    if (incident.status !== 'OPEN' && incident.status !== 'UNCOMPLETED') {
+      throw new ConflictError(`Mission already ${incident.status}`);
+    }
 
-exports.acceptIncident = async (req, res) => {
-  try {
-    const { incidentId } = req.params;
-    const responderId = req.user.id;
-
-    const incident = await Incident.findByPk(incidentId);
-    if (!incident) return res.status(404).json({ error: 'Incident not found' });
-    if (incident.status !== 'OPEN') return res.status(400).json({ error: 'Incident already assigned' });
-
-    const responder = await User.findByPk(responderId);
-    
     const currentAssigned = Array.isArray(incident.assigned_to) ? incident.assigned_to : (incident.assigned_to ? [incident.assigned_to] : []);
-    if (!currentAssigned.includes(responderId)) {
-        incident.assigned_to = [...currentAssigned, responderId];
+
+    if (rId && !currentAssigned.includes(rId)) {
+      await incident.update(
+        {
+          assigned_unit: assignedUnit || incident.assigned_unit,
+          assigned_to: [...currentAssigned, rId],
+          status: 'ASSIGNED',
+        },
+        { transaction: t }
+      );
+      
+      const responder = await User.findByPk(rId, { transaction: t });
+      await responder.update({ is_available: false }, { transaction: t });
+
+      await Assignment.create({
+        incident_id: incident.id,
+        responder_id: rId,
+        force_id: responder.force_id,
+        status: 'ASSIGNED'
+      }, { transaction: t });
     }
-    
-    incident.status = 'ASSIGNED';
-    await incident.save();
 
-    const enriched = (await enrichIncidentsList([incident]))[0];
-    const payload = enriched;
-
-    const io = getIo();
-    if (io) {
-      io.emit('INCIDENT_ASSIGNED', payload);
+    if (facilityId) {
+      await Facility.update({ is_available: false }, { where: { id: facilityId }, transaction: t });
     }
 
-    res.json(payload);
-  } catch (error) {
-    console.error('Accept failed:', error);
-    res.status(500).json({ error: 'Accept failed' });
+    return incident;
+  });
+
+  const enriched = (await enrichIncidentsList([result]))[0];
+  const io = getIo();
+  if (io) {
+    io.emit('incident.assigned', enriched);
+    io.emit('incident.updated', enriched);
   }
-};
+  res.json(enriched);
+});
+
+exports.claimIncident = asyncHandler(async (req, res) => {
+  let responderId = req.auth?.id || req.body?.responderId || req.body?.responder_id;
+  if (!responderId) {
+    const fallbackUser = await User.findOne({ where: { role: 'RESPONDER' } });
+    if (fallbackUser) responderId = fallbackUser.id;
+  }
+  if (!responderId) throw new NotFoundError('Unauthorized: No Responder ID');
+
+  const result = await sequelize.transaction(async (t) => {
+    const incident = await Incident.findByPk(req.params.id, { lock: t.LOCK.UPDATE, transaction: t });
+    if (!incident) throw new NotFoundError('Incident not found');
+    if (incident.status !== 'OPEN' && incident.status !== 'UNCOMPLETED') {
+      throw new ConflictError(`Mission already ${incident.status}`);
+    }
+
+    await incident.update(
+      {
+        assigned_to: [responderId],
+        status: 'ASSIGNED',
+      },
+      { transaction: t }
+    );
+    
+    const responder = await User.findByPk(responderId, { transaction: t });
+    await responder.update({ is_available: false }, { transaction: t });
+    
+    await Assignment.create({
+      incident_id: incident.id,
+      responder_id: responderId,
+      force_id: responder.force_id,
+      status: 'ASSIGNED'
+    }, { transaction: t });
+
+    return incident;
+  });
+
+  const enriched = (await enrichIncidentsList([result]))[0];
+  const io = getIo();
+  if (io) {
+    io.emit('incident.assigned', enriched);
+    io.emit('incident.updated', enriched);
+  }
+  res.json(enriched);
+});
+
+exports.updateStatus = asyncHandler(async (req, res) => {
+  const { status } = req.body;
+  const incident = await Incident.findByPk(req.params.id);
+  if (!incident) throw new NotFoundError('Incident not found');
+
+  await incident.update({ status });
+  const enriched = (await enrichIncidentsList([incident]))[0];
+
+  const io = getIo();
+  if (io) io.emit('incident.status_changed', enriched);
+
+  res.json(enriched);
+});
+
+exports.resolveIncident = asyncHandler(async (req, res) => {
+  const { people_saved, resources_used, notes } = req.body;
+  
+  const result = await sequelize.transaction(async (t) => {
+    const incident = await Incident.findByPk(req.params.id, { lock: t.LOCK.UPDATE, transaction: t });
+    if (!incident) throw new NotFoundError('Incident not found');
+
+    await incident.update({
+      people_saved,
+      status: 'RESOLVED',
+      ai_summary: notes,
+    }, { transaction: t });
+
+    const assignedIds = Array.isArray(incident.assigned_to) ? incident.assigned_to : (incident.assigned_to ? [incident.assigned_to] : []);
+    if (assignedIds.length > 0) {
+      await User.update({ is_available: true }, { where: { id: assignedIds }, transaction: t });
+      await Assignment.update({ status: 'RESOLVED', resolved_at: new Date(), people_saved, resources_used: resources_used || [], notes }, { where: { incident_id: incident.id, status: 'ASSIGNED' }, transaction: t });
+    }
+    if (incident.assigned_unit) {
+      await Facility.update({ is_available: true }, { where: { name: incident.assigned_unit }, transaction: t });
+    }
+    return incident;
+  });
+
+  const enriched = (await enrichIncidentsList([result]))[0];
+  const io = getIo();
+  if (io) io.emit('incident.resolved', enriched);
+  res.json(enriched);
+});
+
+exports.citizenConfirm = asyncHandler(async (req, res) => {
+  const { confirmed, notes, photo_url } = req.body;
+  const incident = await Incident.findByPk(req.params.id);
+  if (!incident) throw new NotFoundError('Incident not found');
+
+  const newStatus = confirmed ? 'COMPLETED' : 'UNCOMPLETED';
+  await incident.update({
+    status: newStatus,
+    ai_summary: notes ? `${incident.ai_summary || ''}\n\n[Citizen Feedback]: ${notes}` : incident.ai_summary,
+    photo_url: photo_url || incident.photo_url,
+  });
+
+  const enriched = (await enrichIncidentsList([incident]))[0];
+  const io = getIo();
+  if (io) io.emit('incident.updated', enriched);
+  res.json(enriched);
+});
+
+exports.adminComplete = asyncHandler(async (req, res) => {
+  const { reason } = req.body;
+  
+  const result = await sequelize.transaction(async (t) => {
+    const incident = await Incident.findByPk(req.params.id, { lock: t.LOCK.UPDATE, transaction: t });
+    if (!incident) throw new NotFoundError('Incident not found');
+
+    await incident.update({
+      status: 'COMPLETED',
+      ai_summary: `${incident.ai_summary || ''}\n\n[ADMIN FORCE CLOSE - FAILED]: ${reason || 'No reason provided.'}`,
+    }, { transaction: t });
+
+    const assignedIds = Array.isArray(incident.assigned_to) ? incident.assigned_to : (incident.assigned_to ? [incident.assigned_to] : []);
+    if (assignedIds.length > 0) {
+      await User.update({ is_available: true }, { where: { id: assignedIds }, transaction: t });
+    }
+    return incident;
+  });
+
+  const enriched = (await enrichIncidentsList([result]))[0];
+  const io = getIo();
+  if (io) io.emit('incident.updated', enriched);
+  res.json(enriched);
+});
+
+exports.escalateIncident = asyncHandler(async (req, res) => {
+  const incident = await Incident.findByPk(req.params.id);
+  if (!incident) throw new NotFoundError('Incident not found');
+
+  await incident.update({
+    ai_urgency: 'CRITICAL',
+    ai_summary: `${incident.ai_summary || ''}\n\n[TACTICAL ALERT]: Citizen reported rescue squad not arriving!`,
+  });
+
+  const enriched = (await enrichIncidentsList([incident]))[0];
+  const io = getIo();
+  if (io) {
+    io.emit('system.alert', {
+      message: `CRITICAL: Help not arriving for mission ${incident.title || incident.id}`,
+      incident: enriched,
+    });
+    io.emit('incident.updated', enriched);
+  }
+  res.json(enriched);
+});

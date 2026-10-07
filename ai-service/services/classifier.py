@@ -3,17 +3,18 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from openai import AsyncOpenAI
+from google import genai
+from google.genai import types
 
 from schemas import TriageRequest, TriageResponse
 
-MODEL_NAME = "gpt-4o"
+MODEL_NAME = "gemini-2.5-flash"
 FLAG_THRESHOLD = 0.6
 LOG_FILE = Path(__file__).resolve().parents[1] / "flagged_incidents.log"
 
 
-def _get_client() -> AsyncOpenAI:
-    return AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+def _get_client() -> genai.Client:
+    return genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 
 def _extract_json(raw: str) -> dict:
@@ -38,24 +39,26 @@ async def triage_incident(payload: TriageRequest) -> TriageResponse:
         "- resources_needed: array of strings from ['BOAT','HELICOPTER','AMBULANCE','FIRE_ENGINE','MEDICAL_KIT','FOOD_PACK','WATER','ROPE','TENT']\n"
         "- summary: one sentence describing the emergency\n"
         "- people_estimate: integer estimate of people affected\n"
-        "If photo is provided, analyze it to validate the report.\n"
         f"Description: {payload.description}\n"
         f"Reported category: {payload.category.value if payload.category else 'UNKNOWN'}"
     )
+    
+    # We use generate_content since this is standard for Gemini SDK.
+    # Note: image processing would be supported if payload.photo_url exists and downloaded, but for now we rely on description text.
 
-    user_content: list[dict] = [{"type": "text", "text": prompt}]
-    if payload.photo_url:
-        user_content.append({"type": "image_url", "image_url": {"url": str(payload.photo_url)}})
-
-    completion = await client.chat.completions.create(
-        model=MODEL_NAME,
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json",
         temperature=0.1,
-        messages=[
-            {"role": "system", "content": "You classify emergency incidents and return strict JSON only."},
-            {"role": "user", "content": user_content},
-        ],
+        system_instruction="You classify emergency incidents and return strict JSON only."
     )
-    raw = completion.choices[0].message.content or "{}"
+    
+    response = client.models.generate_content(
+        model=MODEL_NAME,
+        contents=prompt,
+        config=config,
+    )
+    
+    raw = response.text or "{}"
     parsed = _extract_json(raw)
     result = TriageResponse(**parsed)
 

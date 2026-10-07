@@ -1,9 +1,8 @@
-import { useState, useEffect, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent, useCallback } from 'react';
 import { createIncident } from '../../api/incidents';
 import { useGeolocation } from '../../hooks/useGeolocation';
-import { MapContainer, TileLayer, CircleMarker, useMapEvents } from 'react-leaflet';
+import { GoogleMap, useJsApiLoader, Circle } from '@react-google-maps/api';
 import { api } from '../../api/client';
-import 'leaflet/dist/leaflet.css';
 
 export function SOSForm() {
   const geo = useGeolocation();
@@ -18,6 +17,21 @@ export function SOSForm() {
   const [aiResult, setAiResult] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const { isLoaded } = useJsApiLoader({
+    id: 'google-map-script',
+    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "",
+  });
+
+  const [map, setMap] = useState<google.maps.Map | null>(null);
+
+  const onLoad = useCallback(function callback(map: google.maps.Map) {
+    setMap(map);
+  }, []);
+
+  const onUnmount = useCallback(function callback() {
+    setMap(null);
+  }, []);
+
   useEffect(() => {
     if (geo.coords && lat === null && lng === null) {
       setLat(geo.coords.lat);
@@ -25,15 +39,11 @@ export function SOSForm() {
     }
   }, [geo.coords, lat, lng]);
 
-  function LocationPicker() {
-    useMapEvents({
-      click(e) {
-        setLat(e.latlng.lat);
-        setLng(e.latlng.lng);
-      },
-    });
-    return null;
-  }
+  useEffect(() => {
+    if (map && lat && lng) {
+      map.panTo({ lat, lng });
+    }
+  }, [lat, lng, map]);
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -81,7 +91,7 @@ export function SOSForm() {
     }
   }
 
-  const mapCenter = lat && lng ? [lat, lng] : [20.5937, 78.9629]; // Default to India center
+  const mapCenter = lat && lng ? { lat, lng } : { lat: 20.5937, lng: 78.9629 };
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
@@ -136,20 +146,49 @@ export function SOSForm() {
         <div className="grid gap-2">
           <label className="text-xs font-semibold text-gray-300">Confirm Location on Mini-Map</label>
           <div className="h-48 border border-border">
-            <MapContainer center={mapCenter as [number, number]} zoom={geo.coords ? 13 : 5} className="h-full w-full">
-              <TileLayer
-                attribution="&copy; CartoDB"
-                url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-              />
-              <LocationPicker />
-              {lat && lng && (
-                <CircleMarker
-                  center={[lat, lng]}
-                  radius={10}
-                  pathOptions={{ color: '#00E5FF', fillColor: '#00E5FF', fillOpacity: 0.8 }}
-                />
-              )}
-            </MapContainer>
+            {isLoaded ? (
+              <GoogleMap
+                mapContainerStyle={{ width: '100%', height: '100%' }}
+                center={mapCenter}
+                zoom={geo.coords ? 13 : 5}
+                onLoad={onLoad}
+                onUnmount={onUnmount}
+                onClick={(e) => {
+                  if (e.latLng) {
+                    setLat(e.latLng.lat());
+                    setLng(e.latLng.lng());
+                  }
+                }}
+                options={{
+                  disableDefaultUI: true,
+                  zoomControl: true,
+                  styles: [
+                    { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
+                    { elementType: "labels.text.stroke", stylers: [{ color: "#242f3e" }] },
+                    { elementType: "labels.text.fill", stylers: [{ color: "#746855" }] },
+                    { featureType: "administrative.locality", elementType: "labels.text.fill", stylers: [{ color: "#d59563" }] },
+                    { featureType: "water", elementType: "geometry", stylers: [{ color: "#17263c" }] },
+                    { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#515c6d" }] },
+                    { featureType: "water", elementType: "labels.text.stroke", stylers: [{ color: "#17263c" }] }
+                  ]
+                }}
+              >
+                {lat && lng && (
+                  <Circle
+                    center={{ lat, lng }}
+                    radius={200}
+                    options={{
+                      fillColor: '#00E5FF',
+                      fillOpacity: 0.8,
+                      strokeColor: '#00E5FF',
+                      strokeWeight: 2,
+                    }}
+                  />
+                )}
+              </GoogleMap>
+            ) : (
+              <div className="h-full w-full flex items-center justify-center bg-bg text-white">Loading Map...</div>
+            )}
           </div>
           <div className="text-xs font-mono text-gray-400">
             Selected Coords: {lat ? `${lat.toFixed(5)}, ${lng.toFixed(5)}` : 'Locating...'}

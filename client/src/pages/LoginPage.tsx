@@ -54,7 +54,7 @@ const LoginPage: React.FC = () => {
 
       // Redirect based on role
       if (user.role === 'CITIZEN') navigate('/citizen/sos');
-      else if (user.role === 'COMMAND') navigate('/command/dashboard');
+      else if (user.role === 'ADMIN') navigate('/command/dashboard');
       else navigate('/responder/mission');
 
     } catch (err: any) {
@@ -132,7 +132,7 @@ const LoginPage: React.FC = () => {
               <div>
                 <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Username / Email</label>
                 <input 
-                  type="text" required placeholder="cmd_admin"
+                  type="text" required placeholder="command@rescue.in"
                   className="w-full bg-[#0B0F1A] border border-slate-700 rounded-lg px-4 py-3 text-sm focus:border-cyan-500 outline-none transition-all"
                   value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})}
                 />
@@ -145,16 +145,16 @@ const LoginPage: React.FC = () => {
                   value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})}
                 />
               </div>
-              <p className="text-[10px] text-slate-500 flex items-center gap-1"><Info className="w-3 h-3" /> Demo: cmd_admin / sentinel@2024</p>
+              <p className="text-[10px] text-slate-500 flex items-center gap-1"><Info className="w-3 h-3" /> Demo: command@rescue.in / RESCUE2024</p>
             </>
           )}
 
           {activeTab === 'RESPONDER' && (
             <>
               <div>
-                <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Force ID</label>
+                <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Force Email</label>
                 <input 
-                  type="text" required placeholder="NDRF-001"
+                  type="text" required placeholder="ndrf1@rescue.in"
                   className="w-full bg-[#0B0F1A] border border-slate-700 rounded-lg px-4 py-3 text-sm focus:border-cyan-500 outline-none transition-all"
                   value={formData.force_id} onChange={e => setFormData({...formData, force_id: e.target.value})}
                 />
@@ -167,7 +167,7 @@ const LoginPage: React.FC = () => {
                   value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})}
                 />
               </div>
-              <p className="text-[10px] text-slate-500 flex items-center gap-1"><Info className="w-3 h-3" /> Demo: NDRF-001 / ndrf@2024</p>
+              <p className="text-[10px] text-slate-500 flex items-center gap-1"><Info className="w-3 h-3" /> Demo: ndrf1@rescue.in / RESCUE2024</p>
             </>
           )}
 

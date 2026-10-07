@@ -1,15 +1,16 @@
 import json
 import os
 
-from openai import AsyncOpenAI
+from google import genai
+from google.genai import types
 
 from schemas import VolunteerMatchRequest, VolunteerMatchResponse
 
-MODEL_NAME = "gpt-4o"
+MODEL_NAME = "gemini-2.5-flash"
 
 
-def _get_client() -> AsyncOpenAI:
-    return AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+def _get_client() -> genai.Client:
+    return genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 
 def _extract_json(raw: str) -> dict:
@@ -32,16 +33,21 @@ async def match_volunteers(payload: VolunteerMatchRequest) -> VolunteerMatchResp
         f"Incident:\n{json.dumps(payload.incident)}\n"
         f"Responders:\n{payload.model_dump_json()}\n"
     )
-    completion = await client.chat.completions.create(
-        model=MODEL_NAME,
+    
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json",
         temperature=0.1,
-        messages=[
-            {"role": "system", "content": "You rank emergency responder assignments. Return strict JSON only."},
-            {"role": "user", "content": prompt},
-        ],
+        system_instruction="You rank emergency responder assignments. Return strict JSON only."
     )
-    raw = completion.choices[0].message.content or '{"matches":[]}'
+    
+    response = client.models.generate_content(
+        model=MODEL_NAME,
+        contents=prompt,
+        config=config,
+    )
+    
+    raw = response.text or '{"matches":[]}'
     parsed = _extract_json(raw)
-    response = VolunteerMatchResponse(**parsed)
-    response.matches = response.matches[:3]
-    return response
+    response_obj = VolunteerMatchResponse(**parsed)
+    response_obj.matches = response_obj.matches[:3]
+    return response_obj

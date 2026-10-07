@@ -25,6 +25,15 @@ async function enrichIncidentsList(incidents) {
     const plain = inc.toJSON ? inc.toJSON() : { ...inc };
     const incLat = plain.location?.coordinates?.[1] || plain.location?.lat || 0;
     const incLng = plain.location?.coordinates?.[0] || plain.location?.lng || 0;
+    
+    plain.lat = incLat;
+    plain.lng = incLng;
+    // ensure location object has lat and lng properties directly
+    plain.location = {
+      ...plain.location,
+      lat: incLat,
+      lng: incLng
+    };
 
     const assignedIds = Array.isArray(plain.assigned_to) ? plain.assigned_to : (plain.assigned_to ? [plain.assigned_to] : []);
     plain.responders = [];

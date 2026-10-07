@@ -18,7 +18,8 @@ const Dashboard: React.FC = () => {
     client.get('/facilities').then(res => setFacilities(res.data));
   }, [setIncidents]);
 
-  const activeIncidents = incidents.filter(i => i.status !== 'RESOLVED');
+  const safeIncidents = Array.isArray(incidents) ? incidents : [];
+  const activeIncidents = safeIncidents.filter(i => i.status !== 'RESOLVED');
   const criticalCount = activeIncidents.filter(i => i.ai_urgency === 'CRITICAL').length;
 
   const handleDispatch = async (incident: any, facility: any) => {
@@ -27,11 +28,10 @@ const Dashboard: React.FC = () => {
       // Find a responder for this facility (mock for prototype - usually you'd select one)
       const res = await client.patch(`/incidents/${incident.id}/assign`, {
         facilityId: facility.id,
-        assignedUnit: facility.name,
-        responderId: 'RESPONDER_ID_MOCK' // In real app, map facility to user
+        assignedUnit: facility.name
       });
       updateIncident(res.data);
-      socket?.emit('incident:dispatched', { incident: res.data, responderId: 'RESPONDER_ID_MOCK' });
+      socket?.emit('incident:dispatched', { incident: res.data });
       setSelectedIncident(res.data);
     } catch (err) {
       console.error(err);
@@ -91,12 +91,12 @@ const Dashboard: React.FC = () => {
           <div className="w-[1px] h-8 bg-slate-800" />
           <div className="flex flex-col">
             <span className="text-[9px] font-black text-cyan-400 uppercase tracking-widest">Dispatched</span>
-            <span className="text-2xl font-mono font-black text-white">{incidents.filter(i => i.status === 'DISPATCHED').length}</span>
+            <span className="text-2xl font-mono font-black text-white">{safeIncidents.filter(i => i.status === 'DISPATCHED').length}</span>
           </div>
           <div className="w-[1px] h-8 bg-slate-800" />
           <div className="flex flex-col">
             <span className="text-[9px] font-black text-green-500 uppercase tracking-widest">Resolved</span>
-            <span className="text-2xl font-mono font-black text-white">{incidents.filter(i => i.status === 'RESOLVED').length}</span>
+            <span className="text-2xl font-mono font-black text-white">{safeIncidents.filter(i => i.status === 'RESOLVED').length}</span>
           </div>
           
           <div className="ml-auto flex gap-3">
@@ -143,7 +143,7 @@ const Dashboard: React.FC = () => {
                       </span>
                       <span className="text-[8px] font-mono text-slate-500 uppercase">{inc.type}</span>
                     </div>
-                    <div className="text-xs font-bold text-slate-200 line-clamp-1 mb-1">{inc.address || `Lat: ${inc.lat.toFixed(4)}, Lng: ${inc.lng.toFixed(4)}`}</div>
+                    <div className="text-xs font-bold text-slate-200 line-clamp-1 mb-1">{inc.address || `Lat: ${Number(inc.lat || 0).toFixed(4)}, Lng: ${Number(inc.lng || 0).toFixed(4)}`}</div>
                     <div className="text-[10px] text-slate-400 mb-3">{inc.ai_summary}</div>
                     <div className="flex justify-between items-center">
                       <span className="text-[9px] text-slate-500 flex items-center gap-1"><Users className="w-3 h-3" /> {inc.people_affected} affected</span>
@@ -186,7 +186,7 @@ const Dashboard: React.FC = () => {
               <div className="space-y-4">
                 <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Assign Tactical Unit</div>
                 <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
-                  {facilities
+                  {Array.isArray(facilities) && facilities
                     .filter(f => f.state === selectedIncident.state)
                     .map((f: any) => (
                       <button 
