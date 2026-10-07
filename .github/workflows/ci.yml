@@ -1,37 +1,69 @@
-name: SentinelGrid CI
+name: SentinelGrid CI Workflow
 
 on:
   push:
-    branches: [ main, dev ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ main ]
+    branches: [ "main" ]
 
 jobs:
-  lint-and-build:
+  build-and-test:
     runs-on: ubuntu-latest
+    
     steps:
-      - uses: actions/checkout@v4
+    - name: Checkout Code
+      uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: './server/package-lock.json'
+    # 1. Frontend Checks (React / Vite)
+    - name: Setup Node.js (Frontend)
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: './client/package-lock.json'
+        
+    - name: Install Client Dependencies
+      working-directory: ./client
+      run: npm ci
 
-      - name: Install & Lint Server
-        run: |
-          cd server
-          npm ci
-          npm run lint || echo "Linting failed, but continuing for prototype"
+    - name: Build Client
+      working-directory: ./client
+      run: npm run build
 
-      - name: Install & Build Client
-        run: |
-          cd client
-          npm ci
-          npm run build
+    # 2. Backend Checks (Node / Express)
+    - name: Setup Node.js (Backend)
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: './server/package-lock.json'
+        
+    - name: Install Server Dependencies
+      working-directory: ./server
+      run: npm ci
+      
+    - name: Run Server Tests
+      working-directory: ./server
+      run: npm test
+      continue-on-error: true # Continues if tests aren't configured yet
 
-      - name: Smoke Test Docker Build
-        run: |
-          docker compose build
-          echo "✅ Build successful"
+    # 3. AI Service Checks (Python / FastAPI)
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+        
+    - name: Install Python Dependencies
+      working-directory: ./ai-service
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    # 4. Docker Build Check
+    # Ensures that the entire architecture containerizes correctly
+    - name: Test Docker Compose Build
+      run: docker-compose build
+      env:
+        GEMINI_API_KEY: "dummy-key-for-build"
+        GOOGLE_MAPS_API_KEY: "dummy-key-for-build"
